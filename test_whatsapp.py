@@ -137,7 +137,7 @@ def test_basico_whatsapp():
     try:
         # Importar módulo
         print("1️⃣ Importando módulo WhatsApp...")
-        from .docs import whatsapp
+        from funciones import whatsapp
         print("   ✅ Módulo importado correctamente")
         print()
         

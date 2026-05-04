@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+whatsapp_session/
+temp_adjuntos/
+temp_logo_*.png
+temp_logo_*.jpg
+*.tmp
+.DS_Store

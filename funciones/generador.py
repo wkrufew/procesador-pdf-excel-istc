@@ -6,23 +6,11 @@ from io import BytesIO
 import unicodedata
 
 def limpiar_nombre(nombre):
-    """Limpia y normaliza el nombre (sin tildes, en mayúsculas, sin caracteres raros)."""
     if not nombre:
         return ''
-    # Convertir a mayúsculas pero respetando la Ñ
-    #nombre = nombre.upper()
-    # Eliminar tildes pero mantener la Ñ
-    #nombre = ''.join(c for c in unicodedata.normalize('NFD', nombre)
-    #                if unicodedata.category(c) != 'Mn' or c == 'Ñ')
-    # Eliminar caracteres no alfanuméricos (excepto espacios)
-    # nombre = ''.join(c for c in nombre if c.isalnum() or c.isspace())
-    # Quitar espacios duplicados
-    #return ' '.join(nombre.split())
-
-    # Convertir a string, quitar espacios de sobra y pasar a mayúsculas
     nombre = str(nombre).strip()
-    nombre = " ".join(nombre.split())  # compacta múltiples espacios en uno
-    nombre = nombre.upper()            # mantiene Ñ y tildes (ÁÉÍÓÚ)
+    nombre = " ".join(nombre.split())
+    nombre = nombre.upper()
     return nombre
 
 def create_overlay(name, final_grade=None, page=1, config=None):

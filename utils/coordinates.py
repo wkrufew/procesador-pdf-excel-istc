@@ -9,12 +9,11 @@ def image_to_base64(image):
     img_str = base64.b64encode(buffered.getvalue()).decode()
     return img_str
 
-def create_hover_image(image, key, width=600, title="Imagen"):
-    """Crea una imagen con coordenadas ajustadas a la escala real del PDF (842x595)"""
+def create_hover_image(image, key, width=600, title="Imagen", pdf_dims=(842, 595)):
+    """Crea una imagen con coordenadas ajustadas a la escala real del PDF"""
     img_b64 = image_to_base64(image)
-    
-    # Dimensiones reales del PDF en horizontal
-    pdf_width, pdf_height = 842, 595
+
+    pdf_width, pdf_height = pdf_dims
     
     # Medidas de la imagen renderizada
     original_width, original_height = image.size
@@ -103,15 +102,16 @@ def create_hover_image(image, key, width=600, title="Imagen"):
 
     return st.components.v1.html(html_code, height=scaled_height + 150)
 
-def mostrar_captura_coordenadas(page1_img, page2_img=None, col_nota=None):
+def mostrar_captura_coordenadas(page1_img, page2_img=None, col_nota=None, orientation="HORIZONTAL"):
     """Función para mostrar las imágenes con captura de coordenadas por hover"""
-    
+    pdf_dims = (842, 595) if orientation == "HORIZONTAL" else (595, 842)
+
     st.subheader("📍 Captura coordenadas con hover del mouse")
-    st.info("✨ Mueve el mouse sobre las imágenes para ver las coordenadas en tiempo real (ajustadas a 842x595)")
+    st.info(f"✨ Mueve el mouse sobre las imágenes para ver las coordenadas en tiempo real (PDF: {pdf_dims[0]}x{pdf_dims[1]})")
 
     # Página 1 (Nombre)
     st.write("### 📄 Página 1: Ubicación del NOMBRE")
-    create_hover_image(page1_img, "page1", width=700, title="Página 1 - Posición del Nombre")
+    create_hover_image(page1_img, "page1", width=700, title="Página 1 - Posición del Nombre", pdf_dims=pdf_dims)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -127,7 +127,7 @@ def mostrar_captura_coordenadas(page1_img, page2_img=None, col_nota=None):
     coords_nota = (None, None)
     if col_nota and page2_img:
         st.write("### 📄 Página 2: Ubicación de la NOTA")
-        create_hover_image(page2_img, "page2", width=700, title="Página 2 - Posición de la Nota")
+        create_hover_image(page2_img, "page2", width=700, title="Página 2 - Posición de la Nota", pdf_dims=pdf_dims)
 
         col3, col4 = st.columns(2)
         with col3:

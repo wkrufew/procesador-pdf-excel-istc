@@ -3,12 +3,9 @@ import re
 import unicodedata
 from pathlib import Path
 import pandas as pd
-import streamlit as st
 
-# ---------------- CONFIGURACIÓN ----------------
 PARTICULAS = ['DE', 'DEL', 'DE LA', 'DE LOS', 'DE LAS', 'SAN', 'SANTA']
 
-# ---------------- FUNCIONES DE LIMPIEZA ----------------
 def limpiar_cedula(cedula):
     if pd.isna(cedula):
         return None
@@ -30,7 +27,6 @@ def limpiar_nombres(nombres):
         return None
     return nombres_limpio
 
-# ---------------- FUNCIONES EXISTENTES ----------------
 def normalizar_texto(texto):
     if not texto:
         return ''
@@ -66,17 +62,15 @@ def generar_combinaciones(nombre_completo):
     comb2 = ' '.join(nombres + apellidos)
     return [normalizar_texto(comb1), normalizar_texto(comb2)]
 
-# ---------------- PROCESAMIENTO DE PDF ----------------
 def procesar_archivos(df, col_cedula, col_nombre, pdf_folder):
     datos_validos = []
     casos_problematicos = []
     cedulas_vistas = set()
-    
-    # Limpiar y validar datos
+
     for idx, row in df.iterrows():
         cedula_limpia = limpiar_cedula(row[col_cedula])
         nombres_limpios = limpiar_nombres(row[col_nombre])
-        
+
         if not cedula_limpia:
             casos_problematicos.append({'Fila': idx+1, 'Motivo': 'Cédula inválida', 'Cédula': row[col_cedula], 'Nombre': row[col_nombre]})
             continue
@@ -86,30 +80,28 @@ def procesar_archivos(df, col_cedula, col_nombre, pdf_folder):
         if cedula_limpia in cedulas_vistas:
             casos_problematicos.append({'Fila': idx+1, 'Motivo': 'Cédula duplicada', 'Cédula': row[col_cedula], 'Nombre': row[col_nombre]})
             continue
-        
+
         datos_validos.append({'Cédula': cedula_limpia, 'Nombre': nombres_limpios})
         cedulas_vistas.add(cedula_limpia)
-    
+
     df_limpio = pd.DataFrame(datos_validos)
-    
-    # Diccionario para comparación de PDFs
+
     csv_dict = {}
     for _, row in df_limpio.iterrows():
         combinaciones = generar_combinaciones(row['Nombre'])
         csv_dict[row['Cédula']] = {'nombre_original': row['Nombre'], 'combinaciones': combinaciones}
-    
+
     resultados = []
     for pdf_path in Path(pdf_folder).glob("*.pdf"):
         pdf_name = pdf_path.name
         pdf_name = pdf_name.replace("_", " ")
         pdf_base = re.sub(r'[-_]?SIGNED', '', pdf_name, flags=re.I)
         pdf_base = re.sub(r'\.PDF$', '', pdf_base, flags=re.I)
-        #pdf_base = pdf_base.replace("_", " ")  # 👈 NUEVA LÍNEA
         pdf_normalizado = normalizar_texto(pdf_base)
-        
+
         encontrado, cedula_match, nombre_csv = False, '', ''
         estado = "Sin coincidencia"
-        
+
         for cedula, info in csv_dict.items():
             if pdf_normalizado in info['combinaciones']:
                 encontrado = True
@@ -123,63 +115,13 @@ def procesar_archivos(df, col_cedula, col_nombre, pdf_folder):
                     os.rename(pdf_path, nuevo_path)
                     estado = "Renombrado"
                 break
-        
+
         resultados.append({
             'PDF original': pdf_name,
             'Nombre CSV': nombre_csv,
             'Cédula asignada': cedula_match,
             'Estado': estado
         })
-    
+
     df_resultados = pd.DataFrame(resultados)
     return df_resultados, df_limpio, pd.DataFrame(casos_problematicos)
-
-# ---------------- INTERFAZ STREAMLIT ----------------
-st.title("📂 Renombrador de Certificados PDF con Limpieza de Datos")
-st.write("Sube un archivo Excel (.xlsx o .xlsm), selecciona columnas y define la carpeta de PDFs.")
-
-uploaded_file = st.file_uploader("Sube tu archivo Excel", type=["xlsx", "xlsm", "csv"])
-
-if uploaded_file:
-    try:
-        if uploaded_file.name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file, sep=";", dtype=str)
-        else:
-            df = pd.read_excel(uploaded_file, dtype=str, engine="openpyxl")
-        
-        st.success("✅ Archivo cargado correctamente")
-        st.dataframe(df.head())
-        
-        col_cedula = st.selectbox("Selecciona la columna de Cédula", df.columns)
-        col_nombre = st.selectbox("Selecciona la columna de Nombres", df.columns)
-        pdf_folder = st.text_input("Ruta de la carpeta de PDFs")
-        
-        if st.button("Procesar"):
-            if not pdf_folder or not Path(pdf_folder).exists():
-                st.error("❌ La ruta de la carpeta no es válida")
-            else:
-                df_resultados, df_limpio, df_problemas = procesar_archivos(df, col_cedula, col_nombre, pdf_folder)
-                
-                st.success("✅ Proceso completado")
-                
-                st.subheader("📄 Resultados del Renombrado")
-                st.dataframe(df_resultados)
-                
-                st.subheader("✅ Datos válidos tras limpieza")
-                st.dataframe(df_limpio)
-                
-                st.subheader("❌ Casos problemáticos")
-                st.dataframe(df_problemas)
-                
-                # ---------------- DESCARGA CSV ----------------
-                df_reporte = df_resultados.copy()
-                csv_output = df_reporte.to_csv(sep=";", index=False, encoding="utf-8-sig")
-                st.download_button(
-                    label="⬇️ Descargar reporte CSV",
-                    data=csv_output,
-                    file_name="reporte_final.csv",
-                    mime="text/csv"
-                )
-                
-    except Exception as e:
-        st.error(f"❌ Error al leer el archivo: {e}")

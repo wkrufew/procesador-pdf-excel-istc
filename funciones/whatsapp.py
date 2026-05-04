@@ -33,24 +33,6 @@ class WhatsAppBot:
         self.delay = delay_entre_mensajes
         self.driver = None
         
-    # def iniciar_navegador(self):
-    #    """
-    #    Configura e inicia el navegador Chrome con WhatsApp Web
-     #   """
-     #   chrome_options = Options()
-     #   chrome_options.add_argument("--start-maximized")
-     #   chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-     #   chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-     #   chrome_options.add_experimental_option('useAutomationExtension', False)
-        #
-        # Mantener sesión de WhatsApp
-      #  chrome_options.add_argument("user-data-dir=./whatsapp_session")
-        #
-      #  self.driver = webdriver.Chrome(options=chrome_options)
-      #  self.driver.get("https://web.whatsapp.com")
-        #
-       # return True
-
     def iniciar_navegador(self):
         chrome_options = Options()
         chrome_options.add_argument("--start-maximized")
@@ -244,30 +226,30 @@ class WhatsAppBot:
         """
         resultados = []
         total = len(df)
-        
-        for idx, row in df.iterrows():
+
+        for counter, (_, row) in enumerate(df.iterrows(), start=1):
             # Preparar datos
             numero = row[col_numero]
             nombre = row.get(col_nombre, '') if col_nombre else ''
             apellido = row.get(col_apellido, '') if col_apellido else ''
-            
+
             # Personalizar mensaje
             mensaje = mensaje_template.replace('{nombre}', str(nombre))
             mensaje = mensaje.replace('{apellido}', str(apellido))
             mensaje = mensaje.replace('{nombre_completo}', f"{nombre} {apellido}".strip())
-            
+
             # Enviar mensaje
             resultado = self.enviar_mensaje(numero, mensaje, archivo_adjunto)
             resultado['nombre'] = nombre
             resultado['apellido'] = apellido
             resultados.append(resultado)
-            
+
             # Callback de progreso
             if callback_progreso:
-                callback_progreso(idx + 1, total, resultado)
-            
+                callback_progreso(counter, total, resultado)
+
             # Delay entre mensajes (excepto el último)
-            if idx < total - 1:
+            if counter < total:
                 time.sleep(self.delay)
         
         # Convertir a DataFrame

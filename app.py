@@ -7,9 +7,6 @@ from funciones import renombrador, correos
 from utils.coordinates import mostrar_captura_coordenadas
 from pdf2image import convert_from_bytes
 import os
-import markdown
-import base64
-from selenium import webdriver
 
 # Configurar la ruta de Poppler
 POPPLER_PATH = r'C:\poppler\Library\bin'
@@ -66,7 +63,7 @@ elif opcion == "Generador de Certificados":
             pages = convert_from_bytes(pdf_bytes, dpi=150, poppler_path=POPPLER_PATH)
             page1_img = pages[0]
             page2_img = pages[1] if len(pages) > 1 else None
-            coords_nombre, coords_nota = mostrar_captura_coordenadas(page1_img, page2_img, col_nota)
+            coords_nombre, coords_nota = mostrar_captura_coordenadas(page1_img, page2_img, col_nota, orientation)
         except Exception as e:
             st.error(f"No se pudo previsualizar PDF: {e}")
             st.info(f"Verifica Poppler en: {POPPLER_PATH} -> {os.path.exists(POPPLER_PATH)}")
@@ -213,7 +210,7 @@ Web: www.istcumanda.edu.ec"""
             
             if st.button("Enviar correos masivos"):
                 df_resultados = correos.enviar_correos(df, col_correo, col_nombre, col_cargo,
-                                                       html_template, logo_file, pie_correo, asunto)
+                                                       html_template=html_template, logo_file=logo_file, asunto=asunto)
                 st.success("✅ Correos enviados")
                 st.dataframe(df_resultados)
 
@@ -237,7 +234,7 @@ Web: www.istcumanda.edu.ec"""
                     "contrasena": contrasena
                 }])
                 df_resultados = correos.enviar_correos(df_temp, "correo", "nombre", "cargo",
-                                                       html_template, logo_file, pie_correo, asunto)
+                                                       html_template=html_template, logo_file=logo_file, asunto=asunto)
                 st.success("✅ Correo enviado")
                 st.dataframe(df_resultados)
 
