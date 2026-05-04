@@ -1,4 +1,4 @@
-# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2025)
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2026)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, TextIO, TypedDict
+from typing import TYPE_CHECKING, TextIO, TypeAlias, TypedDict
 
-from typing_extensions import NotRequired, TypeAlias
+from typing_extensions import NotRequired
 
 from streamlit.string_util import extract_leading_emoji
 
@@ -63,7 +63,7 @@ def page_sort_key(script_path: Path) -> tuple[float, str]:
 
     # Failing this should only be possible if script_path isn't a Python
     # file, which should never happen.
-    if len(matches) == 0:
+    if len(matches) == 0:  # pragma: no cover - defensive
         raise ValueError(
             f"{script_path} is not a Python file. This should never happen."
         )
