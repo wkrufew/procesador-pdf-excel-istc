@@ -22,11 +22,15 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
 pytz==2024.1
 pyxlsb==1.0.10
+qrcode==7.4.2
 reportlab==4.2.5
 requests==2.32.3
+selenium>=4.47.0
 six==1.16.0
 soupsieve==2.6
+streamlit-image-coordinates==0.4.0
 tenacity==9.1.2
 tqdm==4.66.5
 tzdata==2024.1
 urllib3==2.2.3
+webdriver-manager>=4.1.2

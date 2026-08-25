@@ -4,6 +4,7 @@ Permite enviar mensajes personalizados con archivos adjuntos opcionales
 """
 
 import time
+import random
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -23,14 +24,23 @@ class WhatsAppBot:
     Bot para envío masivo de mensajes de WhatsApp
     """
     
-    def __init__(self, delay_entre_mensajes=10):
+    def __init__(self, delay_min=15, delay_max=30, submensajes_pausa=35,
+                 pausa_min_minutos=5, pausa_max_minutos=10):
         """
         Inicializa el bot de WhatsApp
-        
+
         Args:
-            delay_entre_mensajes (int): Segundos de espera entre cada mensaje
+            delay_min (float): Segundos mínimos de espera aleatoria entre cada mensaje
+            delay_max (float): Segundos máximos de espera aleatoria entre cada mensaje
+            submensajes_pausa (int|None): Cada cuántos mensajes hacer una pausa larga (None/0 = desactivar)
+            pausa_min_minutos (float): Minutos mínimos de la pausa larga
+            pausa_max_minutos (float): Minutos máximos de la pausa larga
         """
-        self.delay = delay_entre_mensajes
+        self.delay_min = delay_min
+        self.delay_max = delay_max
+        self.submensajes_pausa = submensajes_pausa or None
+        self.pausa_min_minutos = pausa_min_minutos
+        self.pausa_max_minutos = pausa_max_minutos
         self.driver = None
         
     def iniciar_navegador(self):
@@ -206,12 +216,12 @@ class WhatsAppBot:
             print(f"Error al enviar archivo: {e}")
             return False
     
-    def enviar_mensajes_masivos(self, df, col_numero, col_nombre, col_apellido, 
-                                 mensaje_template, archivo_adjunto=None, 
-                                 callback_progreso=None):
+    def enviar_mensajes_masivos(self, df, col_numero, col_nombre, col_apellido,
+                                 mensaje_template, archivo_adjunto=None,
+                                 callback_progreso=None, callback_pausa=None):
         """
         Envía mensajes masivos a una lista de contactos
-        
+
         Args:
             df (DataFrame): DataFrame con los datos
             col_numero (str): Nombre de columna con números
@@ -220,7 +230,8 @@ class WhatsAppBot:
             mensaje_template (str): Template del mensaje con variables {nombre}, {apellido}
             archivo_adjunto (str): Ruta al archivo adjunto (opcional)
             callback_progreso (function): Función callback para reportar progreso
-            
+            callback_pausa (function): Función callback(segundos_pausa) invocada al iniciar una pausa larga
+
         Returns:
             DataFrame: Resultados del envío
         """
@@ -250,7 +261,15 @@ class WhatsAppBot:
 
             # Delay entre mensajes (excepto el último)
             if counter < total:
-                time.sleep(self.delay)
+                if self.submensajes_pausa and counter % self.submensajes_pausa == 0:
+                    pausa_segundos = random.uniform(
+                        self.pausa_min_minutos * 60, self.pausa_max_minutos * 60
+                    )
+                    if callback_pausa:
+                        callback_pausa(pausa_segundos)
+                    time.sleep(pausa_segundos)
+                else:
+                    time.sleep(random.uniform(self.delay_min, self.delay_max))
         
         # Convertir a DataFrame
         df_resultados = pd.DataFrame(resultados)

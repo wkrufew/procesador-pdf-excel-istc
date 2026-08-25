@@ -1,10 +1,14 @@
+import json
 import re
+from io import BytesIO
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+from PyPDF2 import PdfReader
 from funciones.generador import generar_certificados
-from funciones import renombrador, correos
-from utils.coordinates import mostrar_captura_coordenadas
+from funciones import generador_pro, generador_avanzado, renombrador, correos
+from utils.coordinates import mostrar_captura_coordenadas, create_hover_image
+from streamlit_image_coordinates import streamlit_image_coordinates
 from pdf2image import convert_from_bytes
 import os
 
@@ -19,6 +23,8 @@ st.title("📘 Herramientas ISTCUMANDA")
 opcion = st.sidebar.radio("Selecciona opción", [
     "Inicio",
     "Generador de Certificados",
+    "Generador de Certificados (Pro)",
+    "Generador de PDF Avanzado",
     "Renombrador de PDFs",
     "Envio Masivo de Correos",
     "Envio Masivo de WhatsApp",  # 🔹 NUEVA OPCIÓN
@@ -116,6 +122,405 @@ elif opcion == "Generador de Certificados":
             st.success(f"✅ Generados {len(resultados)} PDFs en: {output_dir}")
             st.dataframe(resultados)
 
+# --- Generador de certificados (Pro) ---
+elif opcion == "Generador de Certificados (Pro)":
+    st.header("🔹 Generador de Certificados (Pro)")
+    st.caption(
+        "Campos dinámicos ilimitados: texto, párrafo con variables ({variable}) y código QR. "
+        "No afecta al Generador de Certificados clásico."
+    )
+
+    uploaded_file_pro = st.file_uploader("Sube Excel con los datos", type=["xlsx", "xlsm", "csv"], key="pro_excel")
+    pdf_base_file_pro = st.file_uploader("Sube PDF base", type=["pdf"], key="pro_pdf")
+    output_dir_pro = st.text_input("Carpeta de salida", key="pro_output_dir")
+
+    st.session_state.setdefault("campos_pro", [])
+
+    with st.expander("📂 Cargar plantilla guardada"):
+        plantilla_file = st.file_uploader("Archivo de plantilla (.json)", type=["json"], key="pro_plantilla_upload")
+        if plantilla_file and st.button("Aplicar plantilla cargada"):
+            try:
+                st.session_state["campos_pro"] = json.load(plantilla_file)
+                st.success("Plantilla cargada correctamente.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo leer la plantilla: {e}")
+
+    if uploaded_file_pro and pdf_base_file_pro and output_dir_pro:
+        if uploaded_file_pro.name.endswith(".csv"):
+            df_pro = pd.read_csv(uploaded_file_pro, sep=";", dtype=str)
+        else:
+            df_pro = pd.read_excel(uploaded_file_pro, dtype=str, engine="openpyxl")
+
+        pdf_bytes_pro = pdf_base_file_pro.getvalue()
+
+        # --- Previsualización + dimensiones reales de cada página ---
+        paginas_img = []
+        paginas_dims = []
+        try:
+            paginas_img = convert_from_bytes(pdf_bytes_pro, dpi=150, poppler_path=POPPLER_PATH)
+            base_pdf_reader = PdfReader(BytesIO(pdf_bytes_pro))
+            paginas_dims = [(float(p.mediabox.width), float(p.mediabox.height)) for p in base_pdf_reader.pages]
+        except Exception as e:
+            st.error(f"No se pudo previsualizar el PDF: {e}")
+            st.info(f"Verifica Poppler en: {POPPLER_PATH} -> {os.path.exists(POPPLER_PATH)}")
+
+        num_paginas = max(len(paginas_img), 1)
+
+        st.subheader("🧩 Campos del certificado")
+        if st.button("➕ Agregar campo"):
+            primera_col = df_pro.columns[0] if len(df_pro.columns) else ""
+            st.session_state["campos_pro"].append({
+                "nombre_campo": f"Campo {len(st.session_state['campos_pro']) + 1}",
+                "tipo": "texto",
+                "pagina": 1,
+                "x": 50, "y": 50,
+                "centrado": False,
+                "font_familia": "Helvetica",
+                "font_size": 14,
+                "negrita": False,
+                "cursiva": False,
+                "columna_excel": primera_col,
+                "usar_como_archivo": False,
+                "formatear_nombre": False,
+                "plantilla_texto": "",
+                "variables": {},
+                "interlineado": 18,
+                "columna_url": primera_col,
+                "ancho": 100,
+                "alto": 100,
+            })
+            st.rerun()
+
+        campos = st.session_state["campos_pro"]
+        eliminar_idx = None
+
+        for i, campo in enumerate(campos):
+            with st.expander(f"🔧 {campo.get('nombre_campo', f'Campo {i+1}')} ({campo.get('tipo')})"):
+                campo["nombre_campo"] = st.text_input(
+                    "Nombre del campo (referencia)", value=campo.get("nombre_campo", f"Campo {i+1}"), key=f"pro_nombre_{i}"
+                )
+                tipos = ["texto", "parrafo", "qr"]
+                campo["tipo"] = st.selectbox(
+                    "Tipo de campo", tipos, index=tipos.index(campo.get("tipo", "texto")), key=f"pro_tipo_{i}"
+                )
+                campo["pagina"] = st.number_input(
+                    "Página", min_value=1, max_value=num_paginas,
+                    value=min(int(campo.get("pagina", 1)), num_paginas), key=f"pro_pagina_{i}"
+                )
+
+                pagina_idx = int(campo["pagina"]) - 1
+                if paginas_img and 0 <= pagina_idx < len(paginas_img):
+                    pdf_dims = paginas_dims[pagina_idx]
+                    create_hover_image(
+                        paginas_img[pagina_idx], key=f"pro_{i}", width=600,
+                        title=f"Página {campo['pagina']} - {campo['nombre_campo']}", pdf_dims=pdf_dims
+                    )
+
+                col_x, col_y = st.columns(2)
+                with col_x:
+                    campo["x"] = st.number_input("Coordenada X", min_value=0, value=int(campo.get("x", 50)), key=f"pro_x_{i}")
+                with col_y:
+                    campo["y"] = st.number_input("Coordenada Y", min_value=0, value=int(campo.get("y", 50)), key=f"pro_y_{i}")
+
+                if campo["tipo"] in ("texto", "parrafo"):
+                    familias = ["Helvetica", "Times", "Courier"]
+                    col_f1, col_f2, col_f3 = st.columns(3)
+                    with col_f1:
+                        campo["font_familia"] = st.selectbox(
+                            "Fuente", familias, index=familias.index(campo.get("font_familia", "Helvetica")), key=f"pro_font_{i}"
+                        )
+                    with col_f2:
+                        campo["font_size"] = st.number_input(
+                            "Tamaño", min_value=6, max_value=96, value=int(campo.get("font_size", 14)), key=f"pro_fontsize_{i}"
+                        )
+                    with col_f3:
+                        campo["centrado"] = st.checkbox("Centrado", value=campo.get("centrado", False), key=f"pro_centrado_{i}")
+
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        campo["negrita"] = st.checkbox("Negrita", value=campo.get("negrita", False), key=f"pro_negrita_{i}")
+                    with col_b2:
+                        campo["cursiva"] = st.checkbox("Cursiva", value=campo.get("cursiva", False), key=f"pro_cursiva_{i}")
+
+                if campo["tipo"] == "texto":
+                    columnas = list(df_pro.columns)
+                    idx_col = columnas.index(campo["columna_excel"]) if campo.get("columna_excel") in columnas else 0
+                    campo["columna_excel"] = st.selectbox("Columna del Excel", columnas, index=idx_col, key=f"pro_col_{i}")
+                    campo["formatear_nombre"] = st.checkbox(
+                        "Formatear como nombre (mayúsculas)", value=campo.get("formatear_nombre", False), key=f"pro_formatnombre_{i}"
+                    )
+                    campo["usar_como_archivo"] = st.checkbox(
+                        "Usar como nombre de archivo", value=campo.get("usar_como_archivo", False), key=f"pro_usararchivo_{i}"
+                    )
+
+                elif campo["tipo"] == "parrafo":
+                    campo["plantilla_texto"] = st.text_area(
+                        "Texto de la plantilla (usa {variable} y tus propios saltos de línea)",
+                        value=campo.get("plantilla_texto", ""), height=150, key=f"pro_plantilla_{i}"
+                    )
+                    variables_detectadas = generador_pro.extraer_variables(campo["plantilla_texto"])
+                    variables_map = campo.get("variables", {})
+                    nuevas_variables = {}
+                    if variables_detectadas:
+                        st.caption("Variables detectadas — mapea cada una a una columna del Excel:")
+                        columnas = list(df_pro.columns)
+                        for var in variables_detectadas:
+                            valor_actual = variables_map.get(var)
+                            idx_col = columnas.index(valor_actual) if valor_actual in columnas else 0
+                            nuevas_variables[var] = st.selectbox(f"{{{var}}} → columna", columnas, index=idx_col, key=f"pro_var_{i}_{var}")
+                    campo["variables"] = nuevas_variables
+                    campo["interlineado"] = st.number_input(
+                        "Interlineado (pt)", min_value=6, max_value=96,
+                        value=int(campo.get("interlineado", campo.get("font_size", 14) + 4)), key=f"pro_interlineado_{i}"
+                    )
+
+                elif campo["tipo"] == "qr":
+                    columnas = list(df_pro.columns)
+                    idx_col = columnas.index(campo["columna_url"]) if campo.get("columna_url") in columnas else 0
+                    campo["columna_url"] = st.selectbox("Columna con la URL/dato del QR", columnas, index=idx_col, key=f"pro_qrcol_{i}")
+                    col_qw, col_qh = st.columns(2)
+                    with col_qw:
+                        campo["ancho"] = st.number_input("Ancho QR (pt)", min_value=10, max_value=500, value=int(campo.get("ancho", 100)), key=f"pro_qrw_{i}")
+                    with col_qh:
+                        campo["alto"] = st.number_input("Alto QR (pt)", min_value=10, max_value=500, value=int(campo.get("alto", 100)), key=f"pro_qrh_{i}")
+
+                if st.button("🗑️ Eliminar campo", key=f"pro_del_{i}"):
+                    eliminar_idx = i
+
+        if eliminar_idx is not None:
+            campos.pop(eliminar_idx)
+            st.rerun()
+
+        st.download_button(
+            "💾 Descargar plantilla (JSON)",
+            data=json.dumps(campos, ensure_ascii=False, indent=2),
+            file_name="plantilla_certificado.json",
+            mime="application/json",
+        )
+
+        if st.button("🚀 Generar Certificados (Pro)"):
+            resultados_pro = generador_pro.generar_certificados_pro(df_pro, pdf_base_file_pro, output_dir_pro, campos)
+            st.success(f"✅ Generados {len(resultados_pro)} PDFs en: {output_dir_pro}")
+            st.dataframe(resultados_pro)
+
+# --- Generador de PDF Avanzado ---
+elif opcion == "Generador de PDF Avanzado":
+    st.header("🔹 Generador de PDF Avanzado")
+    st.caption(
+        "Igual que el Pro (texto, párrafo con variables y QR), pero con clic directo sobre el PDF "
+        "para fijar coordenadas y un botón de vista previa con datos reales de la primera fila del Excel."
+    )
+
+    uploaded_file_adv = st.file_uploader("Sube Excel con los datos", type=["xlsx", "xlsm", "csv"], key="adv_excel")
+    pdf_base_file_adv = st.file_uploader("Sube PDF base", type=["pdf"], key="adv_pdf")
+    output_dir_adv = st.text_input("Carpeta de salida", key="adv_output_dir")
+
+    st.session_state.setdefault("campos_avanzado", [])
+
+    with st.expander("📂 Cargar plantilla guardada"):
+        plantilla_file_adv = st.file_uploader("Archivo de plantilla (.json)", type=["json"], key="adv_plantilla_upload")
+        if plantilla_file_adv and st.button("Aplicar plantilla cargada", key="adv_aplicar_plantilla"):
+            try:
+                st.session_state["campos_avanzado"] = json.load(plantilla_file_adv)
+                st.success("Plantilla cargada correctamente.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo leer la plantilla: {e}")
+
+    if uploaded_file_adv and pdf_base_file_adv and output_dir_adv:
+        if uploaded_file_adv.name.endswith(".csv"):
+            df_adv = pd.read_csv(uploaded_file_adv, sep=";", dtype=str)
+        else:
+            df_adv = pd.read_excel(uploaded_file_adv, dtype=str, engine="openpyxl")
+
+        pdf_bytes_adv = pdf_base_file_adv.getvalue()
+
+        paginas_img_adv = []
+        paginas_dims_adv = []
+        try:
+            paginas_img_adv = convert_from_bytes(pdf_bytes_adv, dpi=150, poppler_path=POPPLER_PATH)
+            base_pdf_reader_adv = PdfReader(BytesIO(pdf_bytes_adv))
+            paginas_dims_adv = [(float(p.mediabox.width), float(p.mediabox.height)) for p in base_pdf_reader_adv.pages]
+        except Exception as e:
+            st.error(f"No se pudo previsualizar el PDF: {e}")
+            st.info(f"Verifica Poppler en: {POPPLER_PATH} -> {os.path.exists(POPPLER_PATH)}")
+
+        num_paginas_adv = max(len(paginas_img_adv), 1)
+
+        st.subheader("🧩 Campos del certificado")
+        if st.button("➕ Agregar campo", key="adv_agregar_campo"):
+            primera_col = df_adv.columns[0] if len(df_adv.columns) else ""
+            st.session_state["campos_avanzado"].append({
+                "nombre_campo": f"Campo {len(st.session_state['campos_avanzado']) + 1}",
+                "tipo": "texto",
+                "pagina": 1,
+                "x": 50, "y": 50,
+                "centrado": False,
+                "font_familia": "Helvetica",
+                "font_size": 14,
+                "negrita": False,
+                "cursiva": False,
+                "color": "#000000",
+                "columna_excel": primera_col,
+                "usar_como_archivo": False,
+                "formatear_nombre": False,
+                "plantilla_texto": "",
+                "variables": {},
+                "interlineado": 18,
+                "columna_url": primera_col,
+                "ancho": 100,
+                "alto": 100,
+            })
+            st.rerun()
+
+        campos_adv = st.session_state["campos_avanzado"]
+        eliminar_idx_adv = None
+
+        for i, campo in enumerate(campos_adv):
+            with st.expander(f"🔧 {campo.get('nombre_campo', f'Campo {i+1}')} ({campo.get('tipo')})"):
+                campo["nombre_campo"] = st.text_input(
+                    "Nombre del campo (referencia)", value=campo.get("nombre_campo", f"Campo {i+1}"), key=f"adv_nombre_{i}"
+                )
+                tipos = ["texto", "parrafo", "qr"]
+                campo["tipo"] = st.selectbox(
+                    "Tipo de campo", tipos, index=tipos.index(campo.get("tipo", "texto")), key=f"adv_tipo_{i}"
+                )
+                campo["pagina"] = st.number_input(
+                    "Página", min_value=1, max_value=num_paginas_adv,
+                    value=min(int(campo.get("pagina", 1)), num_paginas_adv), key=f"adv_pagina_{i}"
+                )
+
+                pagina_idx = int(campo["pagina"]) - 1
+                if paginas_img_adv and 0 <= pagina_idx < len(paginas_img_adv):
+                    st.caption("👆 Haz clic sobre el punto exacto donde quieres ubicar el campo:")
+                    click_key = f"adv_click_{i}"
+                    click_value = streamlit_image_coordinates(
+                        paginas_img_adv[pagina_idx], width=650, key=click_key
+                    )
+                    if click_value is not None:
+                        last_click_key = f"adv_lastclick_{i}"
+                        if st.session_state.get(last_click_key) != click_value.get("unix_time"):
+                            st.session_state[last_click_key] = click_value.get("unix_time")
+                            disp_w = click_value.get("width") or 1
+                            disp_h = click_value.get("height") or 1
+                            pdf_w, pdf_h = paginas_dims_adv[pagina_idx]
+                            nuevo_x = round(click_value["x"] / disp_w * pdf_w)
+                            nuevo_y = round(pdf_h - (click_value["y"] / disp_h * pdf_h))
+                            st.session_state[f"adv_x_{i}"] = max(nuevo_x, 0)
+                            st.session_state[f"adv_y_{i}"] = max(nuevo_y, 0)
+                            campo["x"] = st.session_state[f"adv_x_{i}"]
+                            campo["y"] = st.session_state[f"adv_y_{i}"]
+                            st.rerun()
+
+                col_x, col_y = st.columns(2)
+                with col_x:
+                    campo["x"] = st.number_input("Coordenada X", min_value=0, value=int(campo.get("x", 50)), key=f"adv_x_{i}")
+                with col_y:
+                    campo["y"] = st.number_input("Coordenada Y", min_value=0, value=int(campo.get("y", 50)), key=f"adv_y_{i}")
+
+                if campo["tipo"] in ("texto", "parrafo"):
+                    familias = ["Helvetica", "Times", "Courier"]
+                    col_f1, col_f2, col_f3 = st.columns(3)
+                    with col_f1:
+                        campo["font_familia"] = st.selectbox(
+                            "Fuente", familias, index=familias.index(campo.get("font_familia", "Helvetica")), key=f"adv_font_{i}"
+                        )
+                    with col_f2:
+                        campo["font_size"] = st.number_input(
+                            "Tamaño", min_value=6, max_value=96, value=int(campo.get("font_size", 14)), key=f"adv_fontsize_{i}"
+                        )
+                    with col_f3:
+                        campo["centrado"] = st.checkbox("Centrado", value=campo.get("centrado", False), key=f"adv_centrado_{i}")
+
+                    col_b1, col_b2, col_b3 = st.columns(3)
+                    with col_b1:
+                        campo["negrita"] = st.checkbox("Negrita", value=campo.get("negrita", False), key=f"adv_negrita_{i}")
+                    with col_b2:
+                        campo["cursiva"] = st.checkbox("Cursiva", value=campo.get("cursiva", False), key=f"adv_cursiva_{i}")
+                    with col_b3:
+                        campo["color"] = st.color_picker("Color del texto", value=campo.get("color", "#000000"), key=f"adv_color_{i}")
+
+                if campo["tipo"] == "texto":
+                    columnas = list(df_adv.columns)
+                    idx_col = columnas.index(campo["columna_excel"]) if campo.get("columna_excel") in columnas else 0
+                    campo["columna_excel"] = st.selectbox("Columna del Excel", columnas, index=idx_col, key=f"adv_col_{i}")
+                    campo["formatear_nombre"] = st.checkbox(
+                        "Formatear como nombre (mayúsculas)", value=campo.get("formatear_nombre", False), key=f"adv_formatnombre_{i}"
+                    )
+                    campo["usar_como_archivo"] = st.checkbox(
+                        "Usar como nombre de archivo", value=campo.get("usar_como_archivo", False), key=f"adv_usararchivo_{i}"
+                    )
+
+                elif campo["tipo"] == "parrafo":
+                    campo["plantilla_texto"] = st.text_area(
+                        "Texto de la plantilla (usa {variable} y tus propios saltos de línea)",
+                        value=campo.get("plantilla_texto", ""), height=150, key=f"adv_plantilla_{i}"
+                    )
+                    variables_detectadas = generador_pro.extraer_variables(campo["plantilla_texto"])
+                    variables_map = campo.get("variables", {})
+                    nuevas_variables = {}
+                    if variables_detectadas:
+                        st.caption("Variables detectadas — mapea cada una a una columna del Excel:")
+                        columnas = list(df_adv.columns)
+                        for var in variables_detectadas:
+                            valor_actual = variables_map.get(var)
+                            idx_col = columnas.index(valor_actual) if valor_actual in columnas else 0
+                            nuevas_variables[var] = st.selectbox(f"{{{var}}} → columna", columnas, index=idx_col, key=f"adv_var_{i}_{var}")
+                    campo["variables"] = nuevas_variables
+                    campo["interlineado"] = st.number_input(
+                        "Interlineado (pt)", min_value=6, max_value=96,
+                        value=int(campo.get("interlineado", campo.get("font_size", 14) + 4)), key=f"adv_interlineado_{i}"
+                    )
+
+                elif campo["tipo"] == "qr":
+                    columnas = list(df_adv.columns)
+                    idx_col = columnas.index(campo["columna_url"]) if campo.get("columna_url") in columnas else 0
+                    campo["columna_url"] = st.selectbox("Columna con la URL/dato del QR", columnas, index=idx_col, key=f"adv_qrcol_{i}")
+                    col_qw, col_qh, col_qc = st.columns(3)
+                    with col_qw:
+                        campo["ancho"] = st.number_input("Ancho QR (pt)", min_value=10, max_value=500, value=int(campo.get("ancho", 100)), key=f"adv_qrw_{i}")
+                    with col_qh:
+                        campo["alto"] = st.number_input("Alto QR (pt)", min_value=10, max_value=500, value=int(campo.get("alto", 100)), key=f"adv_qrh_{i}")
+                    with col_qc:
+                        campo["color"] = st.color_picker("Color del QR", value=campo.get("color", "#000000"), key=f"adv_qrcolor_{i}")
+                        if campo["color"].upper() in ("#FFFFFF", "#FFF"):
+                            st.warning("Un QR blanco sobre fondo blanco no se podrá escanear.")
+
+                if st.button("🗑️ Eliminar campo", key=f"adv_del_{i}"):
+                    eliminar_idx_adv = i
+
+        if eliminar_idx_adv is not None:
+            campos_adv.pop(eliminar_idx_adv)
+            st.rerun()
+
+        st.download_button(
+            "💾 Descargar plantilla (JSON)",
+            data=json.dumps(campos_adv, ensure_ascii=False, indent=2),
+            file_name="plantilla_certificado_avanzado.json",
+            mime="application/json",
+            key="adv_descargar_plantilla",
+        )
+
+        st.subheader("🖨️ Vista previa de impresión")
+        if st.button("🖨️ Vista previa de impresión", key="adv_vista_previa"):
+            if len(df_adv) == 0:
+                st.warning("El Excel no tiene filas para previsualizar.")
+            else:
+                try:
+                    primera_fila = df_adv.iloc[0]
+                    preview_bytes = generador_avanzado.generar_pdf_preview_bytes(primera_fila, pdf_base_file_adv, campos_adv)
+                    preview_imgs = convert_from_bytes(preview_bytes, dpi=150, poppler_path=POPPLER_PATH)
+                    for pnum, pimg in enumerate(preview_imgs, start=1):
+                        st.image(pimg, caption=f"Página {pnum}", use_container_width=True)
+                except Exception as e:
+                    st.error(f"No se pudo generar la vista previa: {e}")
+
+        if st.button("🚀 Generar Certificados", key="adv_generar"):
+            resultados_adv = generador_pro.generar_certificados_pro(df_adv, pdf_base_file_adv, output_dir_adv, campos_adv)
+            st.success(f"✅ Generados {len(resultados_adv)} PDFs en: {output_dir_adv}")
+            st.dataframe(resultados_adv)
+
 # --- Renombrador de PDFs ---
 elif opcion == "Renombrador de PDFs":
     st.header("🔹 Renombrador de PDFs")
@@ -128,13 +533,30 @@ elif opcion == "Renombrador de PDFs":
         st.success("✅ Archivo cargado correctamente")
         st.dataframe(df.head())
         col_cedula = st.selectbox("Selecciona columna de Cédula", df.columns)
+        validar_cedula = st.checkbox("Validar formato de cédula ecuatoriana (10 dígitos)", value=True)
         col_nombre = st.selectbox("Selecciona columna de Nombres", df.columns)
+        validacion_avanzada = st.checkbox(
+            "Validación avanzada de nombres (separa apellidos/nombres para nombres completos)",
+            value=True,
+            help="Desactívala si la columna de Nombres tiene valores cortos (1-2 palabras) o códigos: "
+                 "en ese caso solo se normaliza y compara tal cual, sin invertir nada.",
+        )
+        columnas = list(df.columns)
+        col_archivo = st.selectbox(
+            "Columna a usar como nombre del PDF",
+            columnas,
+            index=columnas.index(col_cedula),
+        )
         pdf_folder = st.text_input("Ruta de carpeta PDFs")
         if st.button("Procesar Renombrado"):
             if not pdf_folder or not Path(pdf_folder).exists():
                 st.error("❌ Ruta inválida")
             else:
-                df_resultados, df_limpio, df_problemas = renombrador.procesar_archivos(df, col_cedula, col_nombre, pdf_folder)
+                df_resultados, df_limpio, df_problemas = renombrador.procesar_archivos(
+                    df, col_cedula, col_nombre, pdf_folder,
+                    validar_cedula=validar_cedula, col_archivo=col_archivo,
+                    validacion_avanzada=validacion_avanzada,
+                )
                 st.success("✅ Proceso completado")
                 st.subheader("📄 Resultados del Renombrado")
                 st.dataframe(df_resultados)
@@ -337,13 +759,34 @@ Saludos cordiales."""
         
         # --- Configuración de envío ---
         st.subheader("⚙️ 5. Configuración de envío")
-        delay = st.slider(
-            "Segundos de espera entre mensajes (recomendado: 8-15)",
-            min_value=5,
-            max_value=30,
-            value=10,
-            help="Mayor tiempo = menor riesgo de bloqueo por WhatsApp"
+        st.caption(
+            "Para lotes grandes (150-200 contactos/día), un delay aleatorio y pausas largas "
+            "cada cierto número de mensajes reducen el riesgo de bloqueo por WhatsApp."
         )
+        delay_min, delay_max = st.slider(
+            "Rango de espera aleatoria entre mensajes (segundos)",
+            min_value=5,
+            max_value=60,
+            value=(15, 30),
+            help="Se espera un tiempo aleatorio dentro de este rango tras cada mensaje, en vez de un tiempo fijo."
+        )
+
+        col_pausa1, col_pausa2 = st.columns(2)
+        with col_pausa1:
+            submensajes_pausa = st.number_input(
+                "Pausa larga cada cuántos mensajes",
+                min_value=0,
+                max_value=200,
+                value=35,
+                help="0 = desactivar. Recomendado: cada 30-40 mensajes."
+            )
+        with col_pausa2:
+            pausa_min, pausa_max = st.slider(
+                "Duración de la pausa larga (minutos)",
+                min_value=1,
+                max_value=30,
+                value=(5, 10)
+            )
         
         # --- Vista previa del mensaje ---
         with st.expander("👁️ Vista previa del mensaje"):
@@ -375,7 +818,13 @@ Saludos cordiales."""
                 st.error("❌ No hay números válidos para enviar")
             else:
                 # Crear bot
-                bot = whatsapp.WhatsAppBot(delay_entre_mensajes=delay)
+                bot = whatsapp.WhatsAppBot(
+                    delay_min=delay_min,
+                    delay_max=delay_max,
+                    submensajes_pausa=submensajes_pausa,
+                    pausa_min_minutos=pausa_min,
+                    pausa_max_minutos=pausa_max,
+                )
                 
                 # Contenedor de progreso
                 status_placeholder = st.empty()
@@ -401,7 +850,13 @@ Saludos cordiales."""
                             status_placeholder.info(
                                 f"{emoji} Enviando {actual}/{total}: {resultado['numero']} - {resultado['status']}"
                             )
-                        
+
+                        # Callback para avisar de la pausa larga
+                        def avisar_pausa(segundos_pausa):
+                            status_placeholder.warning(
+                                f"⏸️ Pausa larga anti-bloqueo: esperando ~{segundos_pausa/60:.1f} minutos..."
+                            )
+
                         # Enviar mensajes
                         df_resultados = bot.enviar_mensajes_masivos(
                             df_validos,
@@ -410,7 +865,8 @@ Saludos cordiales."""
                             col_apellido if col_apellido else None,
                             mensaje,
                             archivo_adjunto=str(ruta_adjunto) if ruta_adjunto else None,
-                            callback_progreso=actualizar_progreso
+                            callback_progreso=actualizar_progreso,
+                            callback_pausa=avisar_pausa
                         )
                         
                         # Mostrar resultados
