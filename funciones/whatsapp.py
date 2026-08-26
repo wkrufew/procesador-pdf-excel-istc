@@ -70,9 +70,14 @@ class WhatsAppBot:
             bool: True si el login fue exitoso
         """
         try:
-            # Esperar a que aparezca la barra de búsqueda (señal de login exitoso)
+            # Esperar a que aparezca el panel de chats (señal de login exitoso).
+            # Se prueban varios selectores porque WhatsApp Web cambia su HTML seguido
+            # y los data-tab numéricos quedan obsoletos.
             WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab="3"]'))
+                EC.any_of(
+                    EC.presence_of_element_located((By.ID, "side")),
+                    EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab="3"]')),
+                )
             )
             return True
         except TimeoutException:
@@ -135,9 +140,12 @@ class WhatsAppBot:
             # Esperar a que cargue el chat
             time.sleep(3)
             
-            # Buscar el cuadro de texto
+            # Buscar el cuadro de texto (varios selectores por si cambia el HTML de WhatsApp)
             input_box = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab="10"]'))
+                EC.any_of(
+                    EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]')),
+                    EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab="10"]')),
+                )
             )
             
             # Si hay archivo adjunto, enviarlo primero
