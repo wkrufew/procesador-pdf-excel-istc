@@ -12,8 +12,10 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 from pdf2image import convert_from_bytes
 import os
 
-# Configurar la ruta de Poppler
-POPPLER_PATH = r'C:\poppler\Library\bin'
+# Configurar la ruta de Poppler: en Windows hace falta la ruta explícita del binario
+# descargado aparte; en Linux (VPS) ya queda en el PATH del sistema vía apt install
+# poppler-utils, así que None deja que pdf2image lo encuentre solo.
+POPPLER_PATH = r'C:\poppler\Library\bin' if os.name == 'nt' else None
 
 # Configuración inicial
 st.set_page_config(page_title="ISTCUMANDA", page_icon="📘", layout="centered")
@@ -72,7 +74,7 @@ elif opcion == "Generador de Certificados":
             coords_nombre, coords_nota = mostrar_captura_coordenadas(page1_img, page2_img, col_nota, orientation)
         except Exception as e:
             st.error(f"No se pudo previsualizar PDF: {e}")
-            st.info(f"Verifica Poppler en: {POPPLER_PATH} -> {os.path.exists(POPPLER_PATH)}")
+            st.info(f"Verifica Poppler en: {POPPLER_PATH or 'PATH del sistema'} -> {os.path.exists(POPPLER_PATH) if POPPLER_PATH else 'revisar instalacion de poppler-utils'}")
             coords_nombre, coords_nota = (None, None), (None, None)
 
         # --- Configuración de fuentes ---
@@ -163,7 +165,7 @@ elif opcion == "Generador de Certificados (Pro)":
             paginas_dims = [(float(p.mediabox.width), float(p.mediabox.height)) for p in base_pdf_reader.pages]
         except Exception as e:
             st.error(f"No se pudo previsualizar el PDF: {e}")
-            st.info(f"Verifica Poppler en: {POPPLER_PATH} -> {os.path.exists(POPPLER_PATH)}")
+            st.info(f"Verifica Poppler en: {POPPLER_PATH or 'PATH del sistema'} -> {os.path.exists(POPPLER_PATH) if POPPLER_PATH else 'revisar instalacion de poppler-utils'}")
 
         num_paginas = max(len(paginas_img), 1)
 
@@ -344,7 +346,7 @@ elif opcion == "Generador de PDF Avanzado":
             paginas_dims_adv = [(float(p.mediabox.width), float(p.mediabox.height)) for p in base_pdf_reader_adv.pages]
         except Exception as e:
             st.error(f"No se pudo previsualizar el PDF: {e}")
-            st.info(f"Verifica Poppler en: {POPPLER_PATH} -> {os.path.exists(POPPLER_PATH)}")
+            st.info(f"Verifica Poppler en: {POPPLER_PATH or 'PATH del sistema'} -> {os.path.exists(POPPLER_PATH) if POPPLER_PATH else 'revisar instalacion de poppler-utils'}")
 
         num_paginas_adv = max(len(paginas_img_adv), 1)
 
