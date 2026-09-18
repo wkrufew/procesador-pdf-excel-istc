@@ -1,5 +1,8 @@
 import json
 import re
+import shutil
+import tempfile
+import zipfile
 from io import BytesIO
 import streamlit as st
 import pandas as pd
@@ -16,6 +19,25 @@ import os
 # descargado aparte; en Linux (VPS) ya queda en el PATH del sistema vía apt install
 # poppler-utils, así que None deja que pdf2image lo encuentre solo.
 POPPLER_PATH = r'C:\poppler\Library\bin' if os.name == 'nt' else None
+
+# En el VPS (Linux) no tiene sentido pedir una "carpeta de salida": esa ruta
+# es de la PC de quien la escribe, no existe en el servidor. Por defecto
+# ofrecemos ZIP en Linux y carpeta local en Windows, pero el switch permite
+# forzar cualquiera de los dos modos manualmente.
+MODO_ZIP = "Descargar ZIP"
+MODO_LOCAL = "Guardar en carpeta local"
+
+
+def zip_carpeta_en_memoria(carpeta):
+    """Comprime todo el contenido de una carpeta en un ZIP en memoria (bytes)."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for nombre_archivo in os.listdir(carpeta):
+            ruta = os.path.join(carpeta, nombre_archivo)
+            if os.path.isfile(ruta):
+                zf.write(ruta, arcname=nombre_archivo)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # Configuración inicial
 st.set_page_config(page_title="ISTCUMANDA", page_icon="📘", layout="centered")
@@ -48,9 +70,19 @@ elif opcion == "Generador de Certificados":
     
     uploaded_file = st.file_uploader("Sube Excel con Nombres y Nota", type=["xlsx","xlsm","csv"])
     pdf_base_file = st.file_uploader("Sube PDF base", type=["pdf"])
-    output_dir = st.text_input("Carpeta de salida")
 
-    if uploaded_file and pdf_base_file and output_dir:
+    modo_salida = st.radio(
+        "¿Dónde quieres los PDFs generados?",
+        [MODO_ZIP, MODO_LOCAL],
+        index=0 if os.name != "nt" else 1,
+        key="modo_salida_clasico",
+        help="En el servidor usa 'Descargar ZIP' (no deja archivos en el VPS). 'Guardar en carpeta local' es para cuando corres la app en tu propia PC.",
+    )
+    output_dir = None
+    if modo_salida == MODO_LOCAL:
+        output_dir = st.text_input("Carpeta de salida")
+
+    if uploaded_file and pdf_base_file and (modo_salida == MODO_ZIP or output_dir):
         # Leer Excel
         if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file, sep=";", dtype=str)
@@ -115,14 +147,21 @@ elif opcion == "Generador de Certificados":
 
         # --- Botón generar ---
         if st.button("🚀 Generar Certificados"):
+            destino = output_dir if modo_salida == MODO_LOCAL else tempfile.mkdtemp(prefix="certificados_")
             resultados = generar_certificados(
-                df, pdf_base_file, output_dir,
+                df, pdf_base_file, destino,
                 col_nombre, col_nota,
                 config_nombre, config_nota,
                 orientation
             )
-            st.success(f"✅ Generados {len(resultados)} PDFs en: {output_dir}")
             st.dataframe(resultados)
+            if modo_salida == MODO_ZIP:
+                zip_bytes = zip_carpeta_en_memoria(destino)
+                shutil.rmtree(destino, ignore_errors=True)
+                st.success(f"✅ Generados {len(resultados)} PDFs")
+                st.download_button("⬇️ Descargar ZIP", data=zip_bytes, file_name="certificados.zip", mime="application/zip")
+            else:
+                st.success(f"✅ Generados {len(resultados)} PDFs en: {destino}")
 
 # --- Generador de certificados (Pro) ---
 elif opcion == "Generador de Certificados (Pro)":
@@ -134,7 +173,17 @@ elif opcion == "Generador de Certificados (Pro)":
 
     uploaded_file_pro = st.file_uploader("Sube Excel con los datos", type=["xlsx", "xlsm", "csv"], key="pro_excel")
     pdf_base_file_pro = st.file_uploader("Sube PDF base", type=["pdf"], key="pro_pdf")
-    output_dir_pro = st.text_input("Carpeta de salida", key="pro_output_dir")
+
+    modo_salida_pro = st.radio(
+        "¿Dónde quieres los PDFs generados?",
+        [MODO_ZIP, MODO_LOCAL],
+        index=0 if os.name != "nt" else 1,
+        key="modo_salida_pro",
+        help="En el servidor usa 'Descargar ZIP' (no deja archivos en el VPS). 'Guardar en carpeta local' es para cuando corres la app en tu propia PC.",
+    )
+    output_dir_pro = None
+    if modo_salida_pro == MODO_LOCAL:
+        output_dir_pro = st.text_input("Carpeta de salida", key="pro_output_dir")
 
     st.session_state.setdefault("campos_pro", [])
 
@@ -148,7 +197,7 @@ elif opcion == "Generador de Certificados (Pro)":
             except Exception as e:
                 st.error(f"No se pudo leer la plantilla: {e}")
 
-    if uploaded_file_pro and pdf_base_file_pro and output_dir_pro:
+    if uploaded_file_pro and pdf_base_file_pro and (modo_salida_pro == MODO_ZIP or output_dir_pro):
         if uploaded_file_pro.name.endswith(".csv"):
             df_pro = pd.read_csv(uploaded_file_pro, sep=";", dtype=str)
         else:
@@ -302,9 +351,16 @@ elif opcion == "Generador de Certificados (Pro)":
         )
 
         if st.button("🚀 Generar Certificados (Pro)"):
-            resultados_pro = generador_pro.generar_certificados_pro(df_pro, pdf_base_file_pro, output_dir_pro, campos)
-            st.success(f"✅ Generados {len(resultados_pro)} PDFs en: {output_dir_pro}")
+            destino_pro = output_dir_pro if modo_salida_pro == MODO_LOCAL else tempfile.mkdtemp(prefix="certificados_pro_")
+            resultados_pro = generador_pro.generar_certificados_pro(df_pro, pdf_base_file_pro, destino_pro, campos)
             st.dataframe(resultados_pro)
+            if modo_salida_pro == MODO_ZIP:
+                zip_bytes_pro = zip_carpeta_en_memoria(destino_pro)
+                shutil.rmtree(destino_pro, ignore_errors=True)
+                st.success(f"✅ Generados {len(resultados_pro)} PDFs")
+                st.download_button("⬇️ Descargar ZIP", data=zip_bytes_pro, file_name="certificados_pro.zip", mime="application/zip", key="pro_descargar_zip")
+            else:
+                st.success(f"✅ Generados {len(resultados_pro)} PDFs en: {destino_pro}")
 
 # --- Generador de PDF Avanzado ---
 elif opcion == "Generador de PDF Avanzado":
@@ -316,7 +372,17 @@ elif opcion == "Generador de PDF Avanzado":
 
     uploaded_file_adv = st.file_uploader("Sube Excel con los datos", type=["xlsx", "xlsm", "csv"], key="adv_excel")
     pdf_base_file_adv = st.file_uploader("Sube PDF base", type=["pdf"], key="adv_pdf")
-    output_dir_adv = st.text_input("Carpeta de salida", key="adv_output_dir")
+
+    modo_salida_adv = st.radio(
+        "¿Dónde quieres los PDFs generados?",
+        [MODO_ZIP, MODO_LOCAL],
+        index=0 if os.name != "nt" else 1,
+        key="modo_salida_adv",
+        help="En el servidor usa 'Descargar ZIP' (no deja archivos en el VPS). 'Guardar en carpeta local' es para cuando corres la app en tu propia PC.",
+    )
+    output_dir_adv = None
+    if modo_salida_adv == MODO_LOCAL:
+        output_dir_adv = st.text_input("Carpeta de salida", key="adv_output_dir")
 
     st.session_state.setdefault("campos_avanzado", [])
 
@@ -330,7 +396,7 @@ elif opcion == "Generador de PDF Avanzado":
             except Exception as e:
                 st.error(f"No se pudo leer la plantilla: {e}")
 
-    if uploaded_file_adv and pdf_base_file_adv and output_dir_adv:
+    if uploaded_file_adv and pdf_base_file_adv and (modo_salida_adv == MODO_ZIP or output_dir_adv):
         if uploaded_file_adv.name.endswith(".csv"):
             df_adv = pd.read_csv(uploaded_file_adv, sep=";", dtype=str)
         else:
@@ -519,9 +585,16 @@ elif opcion == "Generador de PDF Avanzado":
                     st.error(f"No se pudo generar la vista previa: {e}")
 
         if st.button("🚀 Generar Certificados", key="adv_generar"):
-            resultados_adv = generador_pro.generar_certificados_pro(df_adv, pdf_base_file_adv, output_dir_adv, campos_adv)
-            st.success(f"✅ Generados {len(resultados_adv)} PDFs en: {output_dir_adv}")
+            destino_adv = output_dir_adv if modo_salida_adv == MODO_LOCAL else tempfile.mkdtemp(prefix="certificados_adv_")
+            resultados_adv = generador_pro.generar_certificados_pro(df_adv, pdf_base_file_adv, destino_adv, campos_adv)
             st.dataframe(resultados_adv)
+            if modo_salida_adv == MODO_ZIP:
+                zip_bytes_adv = zip_carpeta_en_memoria(destino_adv)
+                shutil.rmtree(destino_adv, ignore_errors=True)
+                st.success(f"✅ Generados {len(resultados_adv)} PDFs")
+                st.download_button("⬇️ Descargar ZIP", data=zip_bytes_adv, file_name="certificados_avanzado.zip", mime="application/zip", key="adv_descargar_zip")
+            else:
+                st.success(f"✅ Generados {len(resultados_adv)} PDFs en: {destino_adv}")
 
 # --- Renombrador de PDFs ---
 elif opcion == "Renombrador de PDFs":
